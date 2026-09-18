@@ -51,7 +51,7 @@ def get_leaderboard(session: Session = Depends(get_session)):
         calls = session.exec(select(ConversationLog).where(ConversationLog.author_id == user.id, ConversationLog.type == "call")).all()
         calls_made = len(calls)
         leads_managed = len(session.exec(select(Lead).where(Lead.owner_id == user.id)).all())
-        clients_managed = len(session.exec(select(ClientProfile).where(ClientProfile.userId == user.id)).all())
+        clients_managed = len(session.exec(select(ClientProfile).where(ClientProfile.assignedEmployeeId == user.id)).all())
         all_tickets = session.exec(select(ProjectTicket)).all()
         owner_name = (user.name or "").strip().lower()
         assigned_tickets = [ticket for ticket in all_tickets if owner_name and (ticket.current_owner or "").strip().lower() == owner_name]
