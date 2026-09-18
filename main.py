@@ -692,6 +692,8 @@ def on_startup():
         print("cases url/case_type columns already exist or error:", e)
 
 allowed_origins = [
+    "https://stable-crm.vercel.app",
+    "https://web-production-5e474.up.railway.app",
     "https://serphawk-crm-seo.vercel.app",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
