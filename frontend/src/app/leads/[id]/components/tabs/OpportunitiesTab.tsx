@@ -195,11 +195,23 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
   const [isGeneratingDraft, setIsGeneratingDraft] = React.useState(false);
   const [extractResult, setExtractResult] = React.useState<{ count: number; marketplace: number } | null>(null);
   const [extractError, setExtractError] = React.useState<string | null>(null);
+  const [autoResearchMsg, setAutoResearchMsg] = React.useState<string | null>(null);
+  const [researchPending, setResearchPending] = React.useState<boolean>(() => {
+    try { return localStorage.getItem(`research_pending_lead_${lead?.id}`) === 'true'; } catch { return false; }
+  });
+
+  // Clear pending flag if research data is now available
+  React.useEffect(() => {
+    if (research?.company_overview || research?.pain_points || research?.email_agent_data) {
+      try { localStorage.removeItem(`research_pending_lead_${lead?.id}`); } catch {}
+      setResearchPending(false);
+    }
+  }, [research, lead?.id]);
+
   const hasEmailAgentData = Boolean(
     (lead?.source === 'Email Agent' || eaData?.company_info || eaData?.draft) && eaData
   );
 
-  const [autoResearchMsg, setAutoResearchMsg] = React.useState<string | null>(null);
   const handleAutoResearch = async () => {
     try {
       setIsAutoResearching(true);
@@ -208,6 +220,8 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
         method: 'POST'
       });
       if (res.ok) {
+        try { localStorage.setItem(`research_pending_lead_${lead?.id}`, 'true'); } catch {}
+        setResearchPending(true);
         setAutoResearchMsg('running');
         setIsAutoResearching(false);
         return;
@@ -222,6 +236,7 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
     }
     setIsAutoResearching(false);
   };
+
 
   const handleExtractServices = async () => {
     setIsExtracting(true);
@@ -280,7 +295,6 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-zinc-700 dark:border-slate-800 pb-4 overflow-x-auto">
         {[
           { id: 'presales', label: language === 'es' ? 'Análisis del Agente IA' : 'AI Agent Analysis', icon: Brain },
-          ...(hasEmailAgentData ? [{ id: 'emails', label: language === 'es' ? 'Correos Salientes' : 'Outbound Emails', icon: Mail }] : []),
         ].map(t => (
           <button
             key={t.id}
@@ -343,9 +357,12 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
                 <p className="text-xs font-bold text-red-600">{extractError}</p>
               </div>
             )}
-            {autoResearchMsg === 'running' && (
+            {(researchPending || autoResearchMsg === 'running') && (
               <div className="mb-4 flex items-center justify-between gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
-                <p className="text-xs font-bold text-indigo-700">⏳ Analysis running in background (~2 min). Click below when ready.</p>
+                <div className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
+                  <p className="text-xs font-bold text-indigo-700">⏳ AI research is running in the background (~2 min). Reload the page to see results.</p>
+                </div>
                 <button
                   onClick={() => window.location.reload()}
                   className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors"

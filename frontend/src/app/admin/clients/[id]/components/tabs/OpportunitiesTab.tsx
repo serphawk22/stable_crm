@@ -177,9 +177,20 @@ export default function OpportunitiesTab({ client, timeline, serviceRequests, re
   }
 
   const [isAutoResearching, setIsAutoResearching] = React.useState(false);
+  const [researchPending, setResearchPending] = React.useState<boolean>(() => {
+    try { return localStorage.getItem(`research_pending_client_${client?.id}`) === 'true'; } catch { return false; }
+  });
   const [isExtracting, setIsExtracting] = React.useState(false);
   const [extractResult, setExtractResult] = React.useState<{ count: number; marketplace: number } | null>(null);
   const [extractError, setExtractError] = React.useState<string | null>(null);
+
+  // Clear pending flag if research is now available
+  React.useEffect(() => {
+    if (research?.company_overview || research?.email_agent_data) {
+      try { localStorage.removeItem(`research_pending_client_${client?.id}`); } catch {}
+      setResearchPending(false);
+    }
+  }, [research, client?.id]);
 
   const toErrorMessage = (data: any, fallback: string): string => {
     const d = data?.detail ?? data?.message ?? data?.error ?? data;
@@ -270,9 +281,13 @@ export default function OpportunitiesTab({ client, timeline, serviceRequests, re
       const res = await fetch(`${API_BASE_URL}/clients/${client?.id}/auto-research`, {
         method: 'POST'
       });
-      // Research fires in background — no auto-refresh
-      setIsAutoResearching(false);
+      if (res.ok) {
+        try { localStorage.setItem(`research_pending_client_${client?.id}`, 'true'); } catch {}
+        setResearchPending(true);
+      }
     } catch (e) {
+      // silent
+    } finally {
       setIsAutoResearching(false);
     }
   };
@@ -329,8 +344,6 @@ export default function OpportunitiesTab({ client, timeline, serviceRequests, re
       <div className="flex items-center gap-2 border-b border-slate-200 dark:border-zinc-700 dark:border-slate-800 pb-4 overflow-x-auto">
         {[
           { id: 'presales', label: language === 'es' ? 'Análisis del Agente IA' : 'AI Agent Analysis', icon: Brain },
-          ...(hasEmailAgentData ? [{ id: 'emails', label: language === 'es' ? 'Correos Salientes' : 'Outbound Emails', icon: Mail }] : []),
-
         ].map(t => (
           <button
             key={t.id}
@@ -379,6 +392,21 @@ export default function OpportunitiesTab({ client, timeline, serviceRequests, re
                 {isExtracting ? 'Extracting Services...' : 'Extract Services from Website'}
               </button>
             </div>
+
+            {researchPending && (
+              <div className="mb-4 flex items-center justify-between gap-3 px-4 py-3 bg-indigo-50 border border-indigo-200 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-indigo-600 shrink-0" />
+                  <p className="text-xs font-bold text-indigo-700">⏳ AI research is running in the background (~2 min). Reload the page to see results.</p>
+                </div>
+                <button
+                  onClick={() => window.location.reload()}
+                  className="shrink-0 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold rounded-lg transition-colors"
+                >
+                  Check Results
+                </button>
+              </div>
+            )}
 
             {extractResult && (
               <div className="mb-4 flex items-center gap-2 px-4 py-3 bg-emerald-50 border border-emerald-200 rounded-xl">
