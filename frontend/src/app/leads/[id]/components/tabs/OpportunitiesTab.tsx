@@ -111,7 +111,7 @@ function ProbabilityBar({ stage, language }: { stage: string, language: string }
   );
 }
 
-export default function OpportunitiesTab({ lead, timeline, serviceRequests, research, emails = [] }: OpportunitiesTabProps) {
+export default function OpportunitiesTab({ lead, timeline, serviceRequests, research: initialResearch, emails = [] }: OpportunitiesTabProps) {
   const { language } = useLanguage();
   // Derive current stage from lead status + service requests
   const hasAcceptedProposal = serviceRequests.some(r => r.status === 'Accepted');
@@ -143,6 +143,58 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
         : lead.ai_analysis_results;
     } catch (e) {}
   }
+
+  const [isAutoResearching, setIsAutoResearching] = React.useState(false);
+  const [isExtracting, setIsExtracting] = React.useState(false);
+  const [isGeneratingDraft, setIsGeneratingDraft] = React.useState(false);
+  const [extractResult, setExtractResult] = React.useState<{ count: number; marketplace: number } | null>(null);
+  const [extractError, setExtractError] = React.useState<string | null>(null);
+  const [autoResearchMsg, setAutoResearchMsg] = React.useState<string | null>(null);
+  const [researchPending, setResearchPending] = React.useState<boolean>(() => {
+    try { return localStorage.getItem(`research_pending_lead_${lead?.id}`) === 'true'; } catch { return false; }
+  });
+
+  // Live research state — starts from prop, updated by auto-polling
+  const [liveResearch, setLiveResearch] = React.useState<any>(initialResearch || null);
+
+  // Sync from parent prop changes (on initial load)
+  React.useEffect(() => {
+    if (initialResearch && !liveResearch) setLiveResearch(initialResearch);
+  }, [initialResearch]);
+
+  // Shadow the prop with live state so all downstream code uses current data
+  const research = liveResearch;
+
+  // Auto-poll for results when research is pending
+  React.useEffect(() => {
+    if (!researchPending || !lead?.id) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30; // 30 × 8s = 4 min max
+    const poll = async () => {
+      if (cancelled || attempts >= MAX_ATTEMPTS) return;
+      attempts++;
+      try {
+        const res = await fetch(`${API_BASE_URL}/leads/${lead.id}/research`);
+        if (res.ok) {
+          const data = await res.json();
+          const r = data.research;
+          if (r && (r.company_overview || r.pain_points || r.email_agent_data)) {
+            if (!cancelled) {
+              setLiveResearch(r);
+              setResearchPending(false);
+              setAutoResearchMsg(null);
+              try { localStorage.removeItem(`research_pending_lead_${lead.id}`); } catch {}
+            }
+            return; // stop polling
+          }
+        }
+      } catch (e) {}
+      if (!cancelled) setTimeout(poll, 8000);
+    };
+    const timer = setTimeout(poll, 8000);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [researchPending, lead?.id]);
 
   let eaData: any = leadAgentData || null;
   if (research?.email_agent_data) {
@@ -190,23 +242,6 @@ export default function OpportunitiesTab({ lead, timeline, serviceRequests, rese
     try { parsedBusinessGoals = JSON.parse(research.business_goals); } catch(e) { parsedBusinessGoals = research.business_goals; }
   }
 
-  const [isAutoResearching, setIsAutoResearching] = React.useState(false);
-  const [isExtracting, setIsExtracting] = React.useState(false);
-  const [isGeneratingDraft, setIsGeneratingDraft] = React.useState(false);
-  const [extractResult, setExtractResult] = React.useState<{ count: number; marketplace: number } | null>(null);
-  const [extractError, setExtractError] = React.useState<string | null>(null);
-  const [autoResearchMsg, setAutoResearchMsg] = React.useState<string | null>(null);
-  const [researchPending, setResearchPending] = React.useState<boolean>(() => {
-    try { return localStorage.getItem(`research_pending_lead_${lead?.id}`) === 'true'; } catch { return false; }
-  });
-
-  // Clear pending flag if research data is now available
-  React.useEffect(() => {
-    if (research?.company_overview || research?.pain_points || research?.email_agent_data) {
-      try { localStorage.removeItem(`research_pending_lead_${lead?.id}`); } catch {}
-      setResearchPending(false);
-    }
-  }, [research, lead?.id]);
 
   const hasEmailAgentData = Boolean(
     (lead?.source === 'Email Agent' || eaData?.company_info || eaData?.draft) && eaData

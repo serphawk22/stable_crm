@@ -112,7 +112,7 @@ function ProbabilityBar({ stage, language }: { stage: string, language: string }
   );
 }
 
-export default function OpportunitiesTab({ client, timeline, serviceRequests, research, emails = [] }: OpportunitiesTabProps) {
+export default function OpportunitiesTab({ client, timeline, serviceRequests, research: initialResearch, emails = [] }: OpportunitiesTabProps) {
   const { language } = useLanguage();
   // Derive current stage from client status + service requests
   const hasAcceptedProposal = serviceRequests.some(r => r.status === 'Accepted');
@@ -180,17 +180,59 @@ export default function OpportunitiesTab({ client, timeline, serviceRequests, re
   const [researchPending, setResearchPending] = React.useState<boolean>(() => {
     try { return localStorage.getItem(`research_pending_client_${client?.id}`) === 'true'; } catch { return false; }
   });
+
+  // Live research state — starts from prop, updated by polling
+  const [liveResearch, setLiveResearch] = React.useState<any>(initialResearch || null);
+
+  // Sync from parent prop changes (on first load)
+  React.useEffect(() => {
+    if (initialResearch && !liveResearch) setLiveResearch(initialResearch);
+  }, [initialResearch]);
+
+  // Always read from liveResearch (which includes both prop and polled data)
+  const research = liveResearch;
+
+  // Auto-poll for results when research is pending
+  React.useEffect(() => {
+    if (!researchPending || !client?.id) return;
+    let cancelled = false;
+    let attempts = 0;
+    const MAX_ATTEMPTS = 30; // 30 × 8s = 4 min max
+    const poll = async () => {
+      if (cancelled || attempts >= MAX_ATTEMPTS) return;
+      attempts++;
+      try {
+        const res = await fetch(`${API_BASE_URL}/clients/${client.id}/research`);
+        if (res.ok) {
+          const data = await res.json();
+          const r = data.research;
+          if (r && (r.company_overview || r.email_agent_data)) {
+            if (!cancelled) {
+              setLiveResearch(r);
+              setResearchPending(false);
+              try { localStorage.removeItem(`research_pending_client_${client.id}`); } catch {}
+            }
+            return; // stop polling
+          }
+        }
+      } catch (e) {}
+      if (!cancelled) setTimeout(poll, 8000);
+    };
+    const timer = setTimeout(poll, 8000); // first check after 8s
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [researchPending, client?.id]);
+
   const [isExtracting, setIsExtracting] = React.useState(false);
   const [extractResult, setExtractResult] = React.useState<{ count: number; marketplace: number } | null>(null);
   const [extractError, setExtractError] = React.useState<string | null>(null);
 
-  // Clear pending flag if research is now available
+  // Clear pending flag if research is now available (from parent prop)
   React.useEffect(() => {
-    if (research?.company_overview || research?.email_agent_data) {
+    if (initialResearch?.company_overview || initialResearch?.email_agent_data) {
       try { localStorage.removeItem(`research_pending_client_${client?.id}`); } catch {}
       setResearchPending(false);
     }
-  }, [research, client?.id]);
+  }, [initialResearch, client?.id]);
 
   const toErrorMessage = (data: any, fallback: string): string => {
     const d = data?.detail ?? data?.message ?? data?.error ?? data;
